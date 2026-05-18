@@ -43,6 +43,12 @@ python3 techlaser_azimuth_scan.py 192.168.1.115 --init-only --max-wait 180
 python3 techlaser_azimuth_scan.py 192.168.1.115 --init --start 0 --stop 90 --step 10 --speed 5 --max-wait 180
 ```
 
+Если отдельные запросы состояния не отвечают, увеличьте таймаут одного TCP-ответа:
+
+```bash
+python3 techlaser_azimuth_scan.py 192.168.1.115 --init-only --max-wait 180 --timeout 5
+```
+
 ## Примеры
 
 Пройти азимут от 0 до 180 градусов с шагом 15 градусов:

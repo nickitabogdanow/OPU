@@ -156,17 +156,31 @@ def wait_until_ready(
     opu: TechlaserOPU,
     poll_interval: float,
     max_wait: float,
-) -> int:
+) -> int | None:
     deadline = time.monotonic() + max_wait
-    last_state = opu.get_axis_state()
+    last_state: int | None = None
 
     while time.monotonic() < deadline:
-        last_state = opu.get_axis_state()
+        try:
+            last_state = opu.get_axis_state()
+        except TimeoutError as exc:
+            print(f"No axis state response yet: {exc}")
+            time.sleep(poll_interval)
+            continue
+
+        print(f"Axis state: {last_state}")
         if last_state == 2:
             return last_state
         time.sleep(poll_interval)
 
     return last_state
+
+
+def safe_get_axis_faults(opu: TechlaserOPU) -> str:
+    try:
+        return opu.get_axis_faults()
+    except TimeoutError as exc:
+        return f"unavailable ({exc})"
 
 
 def parse_args() -> argparse.Namespace:
@@ -210,27 +224,39 @@ def main() -> int:
         print("Angles:", ", ".join(f"{angle:.2f}" for angle in angles))
         return 0
 
-    with TechlaserOPU(args.host, args.port, timeout=args.timeout) as opu:
-        state = opu.get_axis_state()
-        print(f"Axis state: {state}")
+    state: int | None = None
 
+    with TechlaserOPU(args.host, args.port, timeout=args.timeout) as opu:
         if args.init or args.init_only:
+            try:
+                state = opu.get_axis_state()
+                print(f"Axis state: {state}")
+            except TimeoutError as exc:
+                print(f"Initial axis state unavailable: {exc}")
+
             print("Starting axis self-test...")
             opu.start_axis_self_test()
             print("Self-test command sent.")
             state = wait_until_ready(opu, poll_interval=args.poll, max_wait=args.max_wait)
-            print(f"Axis state after self-test: {state}")
+            print(f"Axis state after self-test: {state if state is not None else 'unknown'}")
 
             if args.init_only:
                 if state == 2:
                     print("Axis is ready.")
                     return 0
-                print(f"Axis is not ready, state={state}, faults={opu.get_axis_faults()}")
+                print(
+                    f"Axis is not ready, state={state if state is not None else 'unknown'}, "
+                    f"faults={safe_get_axis_faults(opu)}"
+                )
                 return 2
+        else:
+            state = opu.get_axis_state()
+            print(f"Axis state: {state}")
 
         if state != 2:
             print(
-                f"Axis is not ready, state={state}, faults={opu.get_axis_faults()}. "
+                f"Axis is not ready, state={state if state is not None else 'unknown'}, "
+                f"faults={safe_get_axis_faults(opu)}. "
                 "Run again with --init if it is safe to start axis self-test."
             )
             return 2
