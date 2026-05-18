@@ -51,6 +51,13 @@ class TechlaserOPU:
         response = self.command("$a#")
         return int(response.strip("$#").split(",")[1])
 
+    def start_axis_self_test(self) -> str:
+        return self.command("$a,1#")
+
+    def get_axis_faults(self) -> str:
+        response = self.command("$b#")
+        return response.strip("$#").split(",")[1]
+
     def get_position(self) -> float:
         response = self.command("$c#")
         return float(response.strip("$#").split(",")[1])
@@ -113,6 +120,23 @@ def wait_until_position(
     )
 
 
+def wait_until_ready(
+    opu: TechlaserOPU,
+    poll_interval: float,
+    max_wait: float,
+) -> int:
+    deadline = time.monotonic() + max_wait
+    last_state = opu.get_axis_state()
+
+    while time.monotonic() < deadline:
+        last_state = opu.get_axis_state()
+        if last_state == 2:
+            return last_state
+        time.sleep(poll_interval)
+
+    return last_state
+
+
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(
         description="Move a Techlaser Ethernet OPU through azimuth positions."
@@ -127,6 +151,16 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--tolerance", type=float, default=0.2, help="position tolerance, deg")
     parser.add_argument("--poll", type=float, default=0.2, help="position polling interval, sec")
     parser.add_argument("--max-wait", type=float, default=60.0, help="max wait per position, sec")
+    parser.add_argument(
+        "--init",
+        action="store_true",
+        help="start axis self-test before movement and wait until the axis is ready",
+    )
+    parser.add_argument(
+        "--init-only",
+        action="store_true",
+        help="start axis self-test, wait until ready, and exit without movement",
+    )
     parser.add_argument(
         "--dry-run",
         action="store_true",
@@ -145,8 +179,26 @@ def main() -> int:
 
     with TechlaserOPU(args.host, args.port) as opu:
         state = opu.get_axis_state()
+        print(f"Axis state: {state}")
+
+        if args.init or args.init_only:
+            print("Starting axis self-test...")
+            print("Device:", opu.start_axis_self_test())
+            state = wait_until_ready(opu, poll_interval=args.poll, max_wait=args.max_wait)
+            print(f"Axis state after self-test: {state}")
+
+            if args.init_only:
+                if state == 2:
+                    print("Axis is ready.")
+                    return 0
+                print(f"Axis is not ready, state={state}, faults={opu.get_axis_faults()}")
+                return 2
+
         if state != 2:
-            print(f"Axis is not ready, state={state}. Web UI/manual may require initialization.")
+            print(
+                f"Axis is not ready, state={state}, faults={opu.get_axis_faults()}. "
+                "Run again with --init if it is safe to start axis self-test."
+            )
             return 2
 
         try:
