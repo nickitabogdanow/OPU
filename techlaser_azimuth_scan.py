@@ -19,6 +19,7 @@ class TechlaserOPU:
         self.port = port
         self.timeout = timeout
         self.sock: socket.socket | None = None
+        self._buffer = b""
 
     def __enter__(self) -> "TechlaserOPU":
         self.sock = socket.create_connection((self.host, self.port), timeout=self.timeout)
@@ -30,22 +31,40 @@ class TechlaserOPU:
             self.sock.close()
             self.sock = None
 
+    def _read_frame(self) -> str:
+        if self.sock is None:
+            raise RuntimeError("Not connected")
+
+        while b"#" not in self._buffer:
+            chunk = self.sock.recv(1024)
+            if not chunk:
+                raise ConnectionError("Connection closed by device")
+            self._buffer += chunk
+
+        frame, self._buffer = self._buffer.split(b"#", 1)
+        return (frame + b"#").decode("ascii", errors="replace").strip()
+
     def command(self, text: str) -> str:
         if self.sock is None:
             raise RuntimeError("Not connected")
         if not text.startswith("$") or not text.endswith("#"):
             raise ValueError("Command must look like '$...#'")
 
+        expected_prefix = text[1:].split(",", 1)[0].rstrip("#")
         self.sock.sendall(text.encode("ascii"))
 
-        chunks: list[bytes] = []
-        while True:
-            chunk = self.sock.recv(1024)
-            if not chunk:
-                raise ConnectionError("Connection closed by device")
-            chunks.append(chunk)
-            if b"#" in chunk:
-                return b"".join(chunks).decode("ascii", errors="replace").strip()
+        deadline = time.monotonic() + self.timeout
+        skipped: list[str] = []
+        while time.monotonic() < deadline:
+            frame = self._read_frame()
+            frame_prefix = frame.strip("$#").split(",", 1)[0]
+            if frame_prefix in (expected_prefix, "X"):
+                return frame
+            skipped.append(frame)
+
+        raise TimeoutError(
+            f"Timed out waiting for response to {text}; skipped frames: {skipped}"
+        )
 
     def get_axis_state(self) -> int:
         response = self.command("$a#")
