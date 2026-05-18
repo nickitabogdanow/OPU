@@ -44,6 +44,14 @@ class TechlaserOPU:
         frame, self._buffer = self._buffer.split(b"#", 1)
         return (frame + b"#").decode("ascii", errors="replace").strip()
 
+    def send(self, text: str) -> None:
+        if self.sock is None:
+            raise RuntimeError("Not connected")
+        if not text.startswith("$") or not text.endswith("#"):
+            raise ValueError("Command must look like '$...#'")
+
+        self.sock.sendall(text.encode("ascii"))
+
     def command(self, text: str) -> str:
         if self.sock is None:
             raise RuntimeError("Not connected")
@@ -56,7 +64,12 @@ class TechlaserOPU:
         deadline = time.monotonic() + self.timeout
         skipped: list[str] = []
         while time.monotonic() < deadline:
-            frame = self._read_frame()
+            try:
+                frame = self._read_frame()
+            except socket.timeout as exc:
+                raise TimeoutError(
+                    f"Timed out waiting for response to {text}; skipped frames: {skipped}"
+                ) from exc
             frame_prefix = frame.strip("$#").split(",", 1)[0]
             if frame_prefix in (expected_prefix, "X"):
                 return frame
@@ -70,8 +83,8 @@ class TechlaserOPU:
         response = self.command("$a#")
         return int(response.strip("$#").split(",")[1])
 
-    def start_axis_self_test(self) -> str:
-        return self.command("$a,1#")
+    def start_axis_self_test(self) -> None:
+        self.send("$a,1#")
 
     def get_axis_faults(self) -> str:
         response = self.command("$b#")
@@ -169,6 +182,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--dwell", type=float, default=1.0, help="pause after each position, sec")
     parser.add_argument("--tolerance", type=float, default=0.2, help="position tolerance, deg")
     parser.add_argument("--poll", type=float, default=0.2, help="position polling interval, sec")
+    parser.add_argument("--timeout", type=float, default=2.0, help="TCP response timeout, sec")
     parser.add_argument("--max-wait", type=float, default=60.0, help="max wait per position, sec")
     parser.add_argument(
         "--init",
@@ -196,13 +210,14 @@ def main() -> int:
         print("Angles:", ", ".join(f"{angle:.2f}" for angle in angles))
         return 0
 
-    with TechlaserOPU(args.host, args.port) as opu:
+    with TechlaserOPU(args.host, args.port, timeout=args.timeout) as opu:
         state = opu.get_axis_state()
         print(f"Axis state: {state}")
 
         if args.init or args.init_only:
             print("Starting axis self-test...")
-            print("Device:", opu.start_axis_self_test())
+            opu.start_axis_self_test()
+            print("Self-test command sent.")
             state = wait_until_ready(opu, poll_interval=args.poll, max_wait=args.max_wait)
             print(f"Axis state after self-test: {state}")
 

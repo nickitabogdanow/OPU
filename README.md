@@ -34,13 +34,13 @@ python3 techlaser_azimuth_scan.py 192.168.1.115 --start 0 --stop 90 --step 10 --
 Если скрипт пишет `Axis is not ready, state=0`, ось не готова принимать команды позиционирования. Когда сектор движения безопасен, запустите самодиагностику:
 
 ```bash
-python3 techlaser_azimuth_scan.py 192.168.1.115 --init-only
+python3 techlaser_azimuth_scan.py 192.168.1.115 --init-only --max-wait 180
 ```
 
 Если после этого появилось `Axis is ready`, запускайте движение с флагом `--init`:
 
 ```bash
-python3 techlaser_azimuth_scan.py 192.168.1.115 --init --start 0 --stop 90 --step 10 --speed 5
+python3 techlaser_azimuth_scan.py 192.168.1.115 --init --start 0 --stop 90 --step 10 --speed 5 --max-wait 180
 ```
 
 ## Примеры
@@ -80,6 +80,7 @@ python3 techlaser_azimuth_scan.py 192.168.1.115 --port 9760 --start 0 --stop 90 
 - `--dwell` - пауза после достижения позиции в секундах.
 - `--tolerance` - допустимая ошибка позиционирования в градусах.
 - `--poll` - период опроса текущей позиции в секундах.
+- `--timeout` - таймаут ожидания одного TCP-ответа в секундах.
 - `--max-wait` - максимальное ожидание достижения одной позиции в секундах.
 - `--init` - запустить самодиагностику оси перед движением и дождаться готовности.
 - `--init-only` - только запустить самодиагностику и выйти без движения.
