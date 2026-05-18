@@ -79,6 +79,19 @@ class TechlaserOPU:
             f"Timed out waiting for response to {text}; skipped frames: {skipped}"
         )
 
+    def raw_exchange(self, text: str, read_seconds: float) -> list[str]:
+        self.send(text)
+        deadline = time.monotonic() + read_seconds
+        frames: list[str] = []
+
+        while time.monotonic() < deadline:
+            try:
+                frames.append(self._read_frame())
+            except socket.timeout:
+                continue
+
+        return frames
+
     def get_axis_state(self) -> int:
         response = self.command("$a#")
         return int(response.strip("$#").split(",")[1])
@@ -183,6 +196,42 @@ def safe_get_axis_faults(opu: TechlaserOPU) -> str:
         return f"unavailable ({exc})"
 
 
+def run_raw_command(args: argparse.Namespace) -> int:
+    if args.raw_command is None:
+        raise ValueError("raw command is not set")
+
+    with TechlaserOPU(args.host, args.port, timeout=args.timeout) as opu:
+        print(f"> {args.raw_command}")
+        frames = opu.raw_exchange(args.raw_command, read_seconds=args.raw_read_seconds)
+
+    if not frames:
+        print("(no frames)")
+        return 1
+
+    for frame in frames:
+        print(frame)
+    return 0
+
+
+def run_probe(args: argparse.Namespace) -> int:
+    commands = ["$V#", "$I#", "$4#", "$5#", "$9#", "$a#", "$b#", "$c#", "$d#", "$e#"]
+
+    for text in commands:
+        try:
+            with TechlaserOPU(args.host, args.port, timeout=args.timeout) as opu:
+                frames = opu.raw_exchange(text, read_seconds=args.raw_read_seconds)
+        except OSError as exc:
+            print(f"{text} -> connection error: {exc}")
+            continue
+
+        if frames:
+            print(f"{text} -> {' '.join(frames)}")
+        else:
+            print(f"{text} -> no response")
+
+    return 0
+
+
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(
         description="Move a Techlaser Ethernet OPU through azimuth positions."
@@ -198,6 +247,21 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--poll", type=float, default=0.2, help="position polling interval, sec")
     parser.add_argument("--timeout", type=float, default=2.0, help="TCP response timeout, sec")
     parser.add_argument("--max-wait", type=float, default=60.0, help="max wait per position, sec")
+    parser.add_argument(
+        "--raw-command",
+        help="send one raw service command and print every frame received",
+    )
+    parser.add_argument(
+        "--raw-read-seconds",
+        type=float,
+        default=2.0,
+        help="how long to collect frames for --raw-command and --probe",
+    )
+    parser.add_argument(
+        "--probe",
+        action="store_true",
+        help="probe common service commands on separate TCP connections",
+    )
     parser.add_argument(
         "--init",
         action="store_true",
@@ -223,6 +287,12 @@ def main() -> int:
     if args.dry_run:
         print("Angles:", ", ".join(f"{angle:.2f}" for angle in angles))
         return 0
+
+    if args.raw_command:
+        return run_raw_command(args)
+
+    if args.probe:
+        return run_probe(args)
 
     state: int | None = None
 
