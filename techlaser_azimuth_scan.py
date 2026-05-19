@@ -1,8 +1,7 @@
 #!/usr/bin/env python3
-"""Iterate a Techlaser OPU over azimuth using the service TCP protocol.
+"""Iterate a Techlaser TL.0009-compatible OPU over azimuth.
 
-The script uses the service protocol documented for similar Techlaser Ethernet
-OPU units. Default control port is 9760.
+The script uses the TL.0009 service ASCII protocol. Default control port is 9760.
 """
 
 from __future__ import annotations
@@ -93,29 +92,29 @@ class TechlaserOPU:
         return frames
 
     def get_axis_state(self) -> int:
-        response = self.command("$a#")
+        response = self.command("$m#")
         return int(response.strip("$#").split(",")[1])
 
     def start_axis_self_test(self) -> None:
-        self.send("$a,1#")
+        self.send("$m,1#")
 
     def get_axis_faults(self) -> str:
-        response = self.command("$b#")
+        response = self.command("$n#")
         return response.strip("$#").split(",")[1]
 
     def get_position(self) -> float:
-        response = self.command("$c#")
+        response = self.command("$o#")
         return float(response.strip("$#").split(",")[1])
 
     def get_busy_status(self) -> int:
-        response = self.command("$e#")
+        response = self.command("$q#")
         return int(response.strip("$#").split(",")[1])
 
     def stop(self) -> None:
-        self.command("$g#")
+        self.command("$u#")
 
     def goto_azimuth(self, degrees: float, max_speed: float) -> str:
-        return self.command(f"$j,{degrees:.2f},{max_speed:.2f}#")
+        return self.command(f"$x,{degrees:.2f},{max_speed:.2f}#")
 
 
 def generate_angles(start: float, stop: float, step: float) -> list[float]:
@@ -156,7 +155,7 @@ def wait_until_position(
     while time.monotonic() < deadline:
         last_position = opu.get_position()
         busy = opu.get_busy_status()
-        if angular_error(last_position, target) <= tolerance and busy in (0, 1):
+        if angular_error(last_position, target) <= tolerance and busy == 0:
             return last_position
         time.sleep(poll_interval)
 
@@ -214,7 +213,39 @@ def run_raw_command(args: argparse.Namespace) -> int:
 
 
 def run_probe(args: argparse.Namespace) -> int:
-    commands = ["$V#", "$I#", "$4#", "$5#", "$9#", "$a#", "$b#", "$c#", "$d#", "$e#"]
+    commands = [
+        "$I#",
+        "$V#",
+        "$0#",
+        "$1#",
+        "$2#",
+        "$3#",
+        "$4#",
+        "$7#",
+        "$8#",
+        "$9#",
+        "$a#",
+        "$b#",
+        "$c#",
+        "$h#",
+        "$t#",
+        "$m#",
+        "$n#",
+        "$o#",
+        "$p#",
+        "$q#",
+        "$s#",
+        "$w#",
+        "$x#",
+        "$M#",
+        "$N#",
+        "$O#",
+        "$P#",
+        "$Q#",
+        "$S#",
+        "$W#",
+        "$X#",
+    ]
 
     for text in commands:
         try:
@@ -234,7 +265,7 @@ def run_probe(args: argparse.Namespace) -> int:
 
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(
-        description="Move a Techlaser Ethernet OPU through azimuth positions."
+        description="Move a Techlaser TL.0009-compatible Ethernet OPU through azimuth positions."
     )
     parser.add_argument("host", help="OPU IP address, for example 192.168.1.115")
     parser.add_argument("--port", type=int, default=9760, help="service TCP port")
